@@ -7,19 +7,79 @@
 # REQUIRE A SPECIFIC TERRAFORM VERSION OR HIGHER
 # ----------------------------------------------------------------------------------------------------------------------
 
-terraform {
-  # This module is now only being tested with Terraform 0.13.x. However, to make upgrading easier, we are setting
-  # 0.12.26 as the minimum version, as that version added support for required_providers with source URLs, making it
-  # forwards compatible with 0.13.x code.
-  #  required_version = ">= 0.12.26"
-}
-
-# ------------------------------------------------------------------------------
-# CONFIGURE OUR AWS CONNECTION
-# ------------------------------------------------------------------------------
 
 provider "aws" {
   region = "eu-west-1"
+}
+
+
+# declare a VPC
+resource "aws_vpc" "my_vpc" {
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_hostnames = true
+  tags = {
+    Name = "tf-My VPC"
+  }
+}
+
+resource "aws_subnet" "public" {
+  vpc_id            = aws_vpc.my_vpc.id
+  cidr_block        = "10.0.0.0/24"
+  availability_zone = "eu-west-1a"
+
+  tags = {
+    Name = "tf-Public Subnet"
+  }
+}
+
+resource "aws_internet_gateway" "my_vpc_igw" {
+  vpc_id = aws_vpc.my_vpc.id
+
+  tags = {
+    Name = "tf-My VPC - Internet Gateway"
+  }
+}
+
+resource "aws_route_table" "my_vpc_eu_west_1a_public" {
+  vpc_id = aws_vpc.my_vpc.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.my_vpc_igw.id
+  }
+
+  tags = {
+    Name = "tf-Public Subnet Route Table."
+  }
+}
+
+resource "aws_route_table_association" "my_vpc_eu_west_1a_public" {
+  subnet_id      = aws_subnet.public.id
+  route_table_id = aws_route_table.my_vpc_eu_west_1a_public.id
+}
+
+resource "aws_security_group" "allow_ssh" {
+  name        = "allow_ssh_sg"
+  description = "Allow SSH inbound connections"
+  vpc_id      = aws_vpc.my_vpc.id
+
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "allow_ssh_sg"
+  }
 }
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -28,10 +88,11 @@ provider "aws" {
 
 resource "aws_instance" "example" {
   # Ubuntu Server 18.04 LTS (HVM), SSD Volume Type in us-east-2
-  #ami                    = "ami-0c55b159cbfafe1f0"
-  ami                    = "ami-0aef57767f5404a3c"
+  ami                    = "ami-0aef57767f5404a3c"   # ubuntu
   instance_type          = "t2.micro"
+  key_name               = "ej-digital-sandbox-keypair-poc"
   vpc_security_group_ids = [aws_security_group.instance.id]
+
 
   user_data = <<-EOF
               #!/bin/bash
